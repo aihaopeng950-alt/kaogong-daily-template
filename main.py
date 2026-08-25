@@ -31,7 +31,7 @@ CITY = "郑州"
 LAT, LON = 34.7466, 113.6253          # 郑州坐标
 TZ_HOURS = 8                           # 北京时间 UTC+8
 HISTORY_FILE = "sent_history.json"
-HISTORY_KEEP = 60                      # 历史保留天数（循环窗口）
+HISTORY_KEEP = 60                      # 历史保留记录条数（≈30天=60条/每天2次；须 > 14天防重窗口*2）
 COURSE_FILE = "courses.csv"               # 课表（图片版已核对）
 
 # 星期 -> 常识板块（与你既定规则一致）
@@ -364,6 +364,17 @@ def get_weather(day_offset: int = 0):
 
 
 # ------------------------- 2. 大模型生成内容（常识考点 + 时事政治 + 提示） -------------------------
+def parse_cn_date(s):
+    """把 '2026年08月25日' 解析为 datetime.date；解析失败返回 None。"""
+    m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", s or "")
+    if not m:
+        return None
+    try:
+        return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except Exception:
+        return None
+
+
 def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> dict:
     api_key = os.environ.get("LLM_API_KEY", "")
     # 大模型兼容接口地址（API 服务器地址）。脚本会向 base + "/chat/completions" 发请求。
@@ -371,7 +382,8 @@ def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> d
     base = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com").rstrip("/")
     # 模型：优先读取 LLM_MODEL 环境变量（daily.yml 注入），缺省回退 deepseek-v4-flash
     model = os.environ.get("LLM_MODEL") or "deepseek-v4-flash"
-    print("使用模型(已锁定):", model, "| 接口:", base + "/chat/completions")
+    src = "LLM_MODEL(配置值)" if os.environ.get("LLM_MODEL") else "默认 deepseek-v4-flash"
+    print("使用模型:", model, f"({src})", "| 接口:", base + "/chat/completions")
 
     schema = '''{
   "board": "板块名",
@@ -383,7 +395,12 @@ def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> d
   "tip": "一句简短穿衣/出行提示"
 }'''
     # 构造「避免重复」约束：把最近已推送的考点与时政标题喂给模型
-    recent = history.get("records", [])[-14:]
+    # 防重复窗口：按"真实发送日期"过滤最近 14 个日历日。
+    # 之前用 [-14:] 条数切片，但 records 早晚各一条扁平存放，14 条仅≈7 天，会漏掉更早的重复项。
+    _now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=TZ_HOURS))).date()
+    _cutoff = _now - datetime.timedelta(days=14)
+    recent = [r for r in history.get("records", [])
+              if (d := parse_cn_date(r.get("date", ""))) and d >= _cutoff]
     avoid = ""
     used_k = "\n".join(f"  - {r.get('knowledge','')}" for r in recent if r.get("knowledge"))
     used_p = "\n".join(f"  - {t}" for r in recent for t in r.get("politics", []) if t)
@@ -415,14 +432,18 @@ def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> d
     return _extract_json(text)
 
 
-def default_content(board: str):
-    """LLM 不可用时的兜底：常识考点与时政均从高频题库取，保证邮件照常发出。"""
+def default_content(board: str, day_hint: int = 0):
+    """LLM 不可用时的兜底：常识考点与时政均从高频题库取，保证邮件照常发出。
+    时政按 day_hint 轮换取，避免 LLM 持续不可用时反复发同一两条。"""
     kb = BANKS.get("knowledge", {}).get(board, [])
     know = kb[0] if kb else {"title": "（生成失败，使用默认占位）",
                              "content": "今日内容生成异常，请检查 LLM_API_KEY 配置或手动补卡。"}
-    pols_raw = BANKS.get("politics", [])[:2]
-    if pols_raw:
-        pols = [{"title": p.get("title", ""), "content": p.get("content", "")} for p in pols_raw]
+    pol_list = BANKS.get("politics", [])
+    if pol_list:
+        n = len(pol_list)
+        start = day_hint % n
+        picked = [pol_list[(start + i) % n] for i in range(min(2, n))]
+        pols = [{"title": p.get("title", ""), "content": p.get("content", "")} for p in picked]
     else:
         pols = [
             {"title": "（时政①生成失败）", "content": "请检查 LLM_API_KEY 配置或手动补时政。"},
@@ -706,7 +727,7 @@ def main():
             content = gen_content(board, weekday_str, day_hint, history)
         except Exception as e:
             print("内容生成失败，使用默认占位：", e)
-            content = default_content(board)
+            content = default_content(board, day_hint)
         # 常识考点改为从高频题库确定性取用（更稳定、不依赖 LLM 是否可用）
         content["knowledge"] = pick_knowledge(board, day_hint, 1)[0]
         content["wuhao"] = pick_wuhao(target.date())
