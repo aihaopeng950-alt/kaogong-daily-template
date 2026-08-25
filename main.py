@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-考公每日加油站 - GitHub Actions 自动发送脚本
-每天两封邮件：
-  - 早上（北京时间 07:00）：备考知识点 = 常识/时政/五位一体申论素材/成语
-  - 晚上（北京时间 22:00）：预告版 = 明日天气 + 明日课表 + 预习建议
-完全运行在 GitHub 服务器，不依赖本地电脑。
+ - GitHub Actions 
 
-防重复机制：
-  1) 五位一体申论素材 / 易混成语 来自固定题库 banks.json，按「距基准日天数」确定性取模轮换，永不重复；
-  2) 常识考点 / 时事政治 由大模型生成，但会把「最近已推送内容」注入提示词做去重；
-  3) 每次发送后把当日内容写入 sent_history.json 并提交回仓库，跨天持久化、跨天识别重复；
-  4) 早晚两封按 (发送日, 模式) 分别去重，互不影响、互不抑制。
+  -  07:00 = ///
+  -  22:00 =  +  + 
+ GitHub 
+
+
+  1)  /   banks.json
+  2)  /  
+  3)  sent_history.json 
+  4)  (, ) 
 """
 
 import os
@@ -26,7 +26,7 @@ from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
 
-# ------------------------- 基础配置 -------------------------
+# -------------------------  -------------------------
 CITY = "郑州"
 LAT, LON = 34.7466, 113.6253          # 郑州坐标
 TZ_HOURS = 8                           # 北京时间 UTC+8
@@ -34,18 +34,19 @@ HISTORY_FILE = "sent_history.json"
 HISTORY_KEEP = 60                      # 历史保留记录条数（≈30天=60条/每天2次；须 > 14天防重窗口*2）
 COURSE_FILE = "courses.csv"               # 课表（图片版已核对）
 
-# 星期 -> 常识板块（与你既定规则一致）
+#  ->
 BOARDS = {
     0: "政治", 1: "法律", 2: "中国历史", 3: "前沿科技",
     4: "地理国情", 5: "宏观经济", 6: "公文管理",
 }
 WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
 
-# ------------------------- 备考周计划（按周排序，驱动晚间「安排」与「明天建议」） -------------------------
-# 依据 GPT 制定的总框架：先补能力缺口 → 再提速度 → 再做整套 → 最后进考试状态。
-# 共 16 周（2026-08-10 起，含考试周 11/23-11/29），国考笔试日 2026-11-28。
+# -------------------------  -------------------------
+#  GPT  →  →  →
+#  16 2026-08-10  11/23-11/29 2026-11-28
 PLAN_START = datetime.date(2026, 8, 10)      # 第 1 周周一
 EXAM_DATE = datetime.date(2026, 11, 28)       # 国考笔试日
+TOOL_AUTHOR = "ahp"                            # anti-plagiarism watermark
 
 WEEKLY_PLAN = [
     {"week": 1, "rng": "8/10–8/16", "stage": "阶段一 · 补能力缺口（8月）",
@@ -131,18 +132,18 @@ WEEKLY_PLAN = [
 ]
 
 def week_for(target_date):
-    """返回 target_date 所处的备考周（按周一对齐，越界则夹紧到首/尾周）。"""
+    """ target_date /"""
     idx = (target_date - PLAN_START).days // 7
     idx = max(0, min(idx, len(WEEKLY_PLAN) - 1))
     return WEEKLY_PLAN[idx]
 
 
 def days_to_exam(d: datetime.date) -> int:
-    """距离国考笔试（EXAM_DATE）还剩多少天（d 当天为 0，已过则为负）。"""
+    """EXAM_DATEd  0"""
     return (EXAM_DATE - d).days
 
 
-# WMO 天气代码 -> 中文描述
+# WMO  ->
 WMO = {
     0: "晴", 1: "晴间多云", 2: "多云", 3: "阴",
     45: "雾", 48: "雾凇",
@@ -159,7 +160,7 @@ COMPASS = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"]
 
 
 def beaufort(kmh: float) -> int:
-    """km/h 转风力等级（蒲福风级，简化）。"""
+    """km/h """
     thresholds = [1, 5, 11, 19, 28, 38, 49, 61, 74, 88, 102, 117]
     for i, t in enumerate(thresholds):
         if kmh <= t:
@@ -171,7 +172,7 @@ def wind_dir(deg: float) -> str:
     return COMPASS[round(deg / 45) % 8]
 
 
-# ------------------------- 题库（确定性轮换，避免重复） -------------------------
+# -------------------------  -------------------------
 def load_banks():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "banks.json")
     try:
@@ -189,7 +190,7 @@ def pick_quotes(day: int, n: int = 2):
     qs = BANKS.get("quotes", [])
     if not qs:
         return ["（题库缺失）", "（题库缺失）"]
-    # 按 day*2 滑动，保证每天 2 条连续且相邻天不重叠
+    #  day*2  2
     base = (day * 2) % len(qs)
     return [qs[(base + i) % len(qs)] for i in range(n)]
 
@@ -198,12 +199,12 @@ def pick_idioms(day: int, n: int = 3):
     its = BANKS.get("idioms", [])
     if not its:
         return [{"a": "A", "b": "B", "diff": "题库缺失", "example": ""} for _ in range(n)]
-    # 间隔取模，保证当天 3 组彼此分散、互不相邻
+    #  3
     return [its[(day + off) % len(its)] for off in (0, 13, 27)][:n]
 
 
 def pick_knowledge(board: str, day: int, n: int = 1):
-    """按板块从高频题库取当天常识考点（确定性轮换，避免重复）。"""
+    """"""
     items = BANKS.get("knowledge", {}).get(board, [])
     if not items:
         return [{"title": "（考点缺失）", "content": f"请检查 banks.json 的 knowledge.{board} 板块。"}]
@@ -211,20 +212,19 @@ def pick_knowledge(board: str, day: int, n: int = 1):
     return [dict(items[(base + i) % len(items)]) for i in range(n)]
 
 
-# ------------------------- 五位一体申论素材（每日一维度轮替） -------------------------
-# 维度固定为五位一体：经济、政治、文化、社会、生态；一天一个、五天一循环。
-# 锚点：以 PLAN_START（2026-08-10，周一）为第 1 天（经济），之后 (日期 - PLAN_START).days % 5 决定当日维度。
+# -------------------------  -------------------------
+#  PLAN_START2026-08-10 1  ( - PLAN_START).days % 5
 WUHAO_ORDER = ["经济", "政治", "文化", "社会", "生态"]
 
 
 def dimension_for(d: datetime.date) -> str:
-    """返回 d 当日对应的五位一体维度（确定性，五天一循环）。"""
+    """ d """
     idx = (d - PLAN_START).days % 5
     return WUHAO_ORDER[idx]
 
 
 def _extract_json(text: str) -> dict:
-    """从 LLM 返回中稳健提取 JSON（容忍 ```json 代码块包裹）。"""
+    """ LLM  JSON ```json """
     s = text.strip()
     if s.startswith("```"):
         s = re.sub(r"^```[a-zA-Z]*\n?", "", s)
@@ -240,8 +240,8 @@ def _extract_json(text: str) -> dict:
 
 
 def gen_wuhao_block(dim: str, quote: str, source: str) -> dict:
-    """五位一体·申论素材块：调 LLM 一次性生成 释义 / 分论点 / 具体论证（约250字，含举例+道理），
-    返回 dict{interpretation, sub_point, material}；失败或无密钥则回退 wuhao_fallback[dim]。
+    """· LLM   /  / 250+
+     dict{interpretation, sub_point, material} wuhao_fallback[dim]
     """
     fb = (BANKS.get("wuhao_fallback", {}) or {}).get(dim) or {}
     try:
@@ -279,10 +279,10 @@ def gen_wuhao_block(dim: str, quote: str, source: str) -> dict:
 
 
 def pick_wuhao(d: datetime.date) -> dict:
-    """返回 d 当日该维度的申论素材块（名言 + 出处 + 释义 + 分论点 + 具体论证）。
+    """ d  +  +  +  + 
 
-    名言（含出处）：从静态精选池确定性取用，保证出处准确、维度精准、覆盖至 12/31 不重复；
-    释义 / 分论点 / 具体论证：优先 LLM 实时生成，失败回退 wuhao_fallback 静态块。
+     12/31 
+     /  /  LLM  wuhao_fallback 
     """
     dim = dimension_for(d)
     pool = BANKS.get("wuhao_yiti", {}).get(dim, [])
@@ -300,7 +300,7 @@ def pick_wuhao(d: datetime.date) -> dict:
     return entry
 
 
-# ------------------------- 已发送历史（跨天持久化去重） -------------------------
+# -------------------------  -------------------------
 def load_history():
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -315,7 +315,7 @@ def save_history(hist):
 
 
 def git_commit_history(date_str: str):
-    """把更新后的历史提交回仓库（失败不影响已发送邮件）。"""
+    """"""
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
         print("未检测到 GH_TOKEN，跳过历史提交（不影响邮件）。")
@@ -333,9 +333,9 @@ def git_commit_history(date_str: str):
         print("历史提交失败（不影响已发送邮件）：", e)
 
 
-# ------------------------- 1. 天气 -------------------------
+# ------------------------- 1.  -------------------------
 def get_weather(day_offset: int = 0):
-    """获取天气。day_offset=0 取今天，=1 取明天（用于晚间预告）。"""
+    """day_offset=0 =1 """
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={LAT}&longitude={LON}"
@@ -363,9 +363,9 @@ def get_weather(day_offset: int = 0):
     }
 
 
-# ------------------------- 2. 大模型生成内容（常识考点 + 时事政治 + 提示） -------------------------
+# ------------------------- 2.  +  +  -------------------------
 def parse_cn_date(s):
-    """把 '2026年08月25日' 解析为 datetime.date；解析失败返回 None。"""
+    """ '20260825'  datetime.date None"""
     m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", s or "")
     if not m:
         return None
@@ -377,10 +377,10 @@ def parse_cn_date(s):
 
 def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> dict:
     api_key = os.environ.get("LLM_API_KEY", "")
-    # 大模型兼容接口地址（API 服务器地址）。脚本会向 base + "/chat/completions" 发请求。
-    # DeepSeek 官方地址为 https://api.deepseek.com（注意：不含 /v1）
+    # API  base + "/chat/completions"
+    # DeepSeek  https://api.deepseek.com /v1
     base = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com").rstrip("/")
-    # 模型：优先读取 LLM_MODEL 环境变量（daily.yml 注入），缺省回退 deepseek-v4-flash
+    #  LLM_MODEL daily.yml  deepseek-v4-flash
     model = os.environ.get("LLM_MODEL") or "deepseek-v4-flash"
     src = "LLM_MODEL(配置值)" if os.environ.get("LLM_MODEL") else "默认 deepseek-v4-flash"
     print("使用模型:", model, f"({src})", "| 接口:", base + "/chat/completions")
@@ -394,9 +394,8 @@ def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> d
   ],
   "tip": "一句简短穿衣/出行提示"
 }'''
-    # 构造「避免重复」约束：把最近已推送的考点与时政标题喂给模型
-    # 防重复窗口：按"真实发送日期"过滤最近 14 个日历日。
-    # 之前用 [-14:] 条数切片，但 records 早晚各一条扁平存放，14 条仅≈7 天，会漏掉更早的重复项。
+    # "" 14
+    #  [-14:]  records 14 ≈7
     _now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=TZ_HOURS))).date()
     _cutoff = _now - datetime.timedelta(days=14)
     recent = [r for r in history.get("records", [])
@@ -433,8 +432,8 @@ def gen_content(board: str, weekday_str: str, day_hint: int, history: dict) -> d
 
 
 def default_content(board: str, day_hint: int = 0):
-    """LLM 不可用时的兜底：常识考点与时政均从高频题库取，保证邮件照常发出。
-    时政按 day_hint 轮换取，避免 LLM 持续不可用时反复发同一两条。"""
+    """LLM 
+     day_hint  LLM """
     kb = BANKS.get("knowledge", {}).get(board, [])
     know = kb[0] if kb else {"title": "（生成失败，使用默认占位）",
                              "content": "今日内容生成异常，请检查 LLM_API_KEY 配置或手动补卡。"}
@@ -459,7 +458,7 @@ def default_content(board: str, day_hint: int = 0):
     }
 
 
-# ------------------------- 课表（按北京时间日期查 CSV，支持取明天） -------------------------
+# -------------------------  CSV -------------------------
 def load_course(day_offset: int = 0):
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=TZ_HOURS)))
     target = (now + datetime.timedelta(days=day_offset)).date().isoformat()
@@ -474,7 +473,7 @@ def load_course(day_offset: int = 0):
 
 
 def course_html(course_row, title="今日课程表"):
-    """课程表卡片（HTML 片段）。title 可传「今日课程表」/「明日课程表」。"""
+    """HTML title /"""
     if not course_row:
         inner = "暂无课表安排，好好休息 / 自主复习"
         border, color = "#94a3b8", "#64748b"
@@ -497,7 +496,7 @@ def course_html(course_row, title="今日课程表"):
     )
 
 
-# ------------------------- 3. 组装 HTML（早上备考知识点版） -------------------------
+# ------------------------- 3.  HTML -------------------------
 def build_html(date_str, weekday_str, content, exam_days=None):
     k = content["knowledge"]
     pol_list = content.get("politics", [])
@@ -539,7 +538,6 @@ def build_html(date_str, weekday_str, content, exam_days=None):
             f'例句：{it["example"]}<br>\n'
         )
 
-    # 国考倒计时横幅（顶部醒目卡片）
     if exam_days is not None:
         banner = (
             '<div style="background: linear-gradient(90deg, #b91c1c, #ef4444); border-radius: 12px; '
@@ -585,7 +583,7 @@ def build_html(date_str, weekday_str, content, exam_days=None):
 
 <div style="text-align: center; padding-top: 12px; border-top: 1px solid #e5e7eb;">
 <p style="color: #9ca3af; font-size: 11px; margin: 0;">
-🕖 每天早上 7:00 自动推送 · 坚持就是胜利 🎯
+🕖 每天早上 7:00 自动推送 · 坚持就是胜利 🎯<span style="display:none">ahp</span>
 </p>
 </div>
 
@@ -593,9 +591,9 @@ def build_html(date_str, weekday_str, content, exam_days=None):
 </div>"""
 
 
-# ------------------------- 3b. 晚间「明日预告」轻邮件 -------------------------
+# ------------------------- 3b.  -------------------------
 def gen_tip(w: dict) -> str:
-    """根据天气生成一句简洁出行/学习提示（晚间预告无 LLM 时用）。"""
+    """/ LLM """
     desc = w.get("desc", "")
     try:
         tmax = float(w.get("tmax", "nan"))
@@ -611,7 +609,7 @@ def gen_tip(w: dict) -> str:
 
 
 def build_evening_html(date_str, weekday_str, weather, course_row):
-    """晚间「明日预告」轻邮件：明日天气 + 培训班明日课表 + 明天建议怎么干 + 本周备考计划(按周)。"""
+    """ +  +  + ()"""
     try:
         d = datetime.datetime.strptime(date_str, "%Y年%m月%d日").date()
     except Exception:
@@ -661,7 +659,7 @@ def build_evening_html(date_str, weekday_str, weather, course_row):
 
 <div style="text-align: center; padding-top: 12px; border-top: 1px solid #e5e7eb;">
 <p style="color: #9ca3af; font-size: 11px; margin: 0;">
-🕖 每晚 22:00 自动预告 · 坚持就是胜利 🎯
+🕖 每晚 22:00 自动预告 · 坚持就是胜利 🎯<span style="display:none">ahp</span>
 </p>
 </div>
 
@@ -669,18 +667,18 @@ def build_evening_html(date_str, weekday_str, weather, course_row):
 </div>"""
 
 
-# ------------------------- 4. 发送邮件（163 SMTP） -------------------------
+# ------------------------- 4. 163 SMTP -------------------------
 def send_email(html: str, subject: str, sender_name: str = "公考每日推送"):
     user = os.environ["EMAIL_USER"]
     pwd = os.environ["EMAIL_AUTH_CODE"]
-    # EMAIL_TO 支持多个收件人，用逗号分隔，例如：a@qq.com,b@qq.com
+    # EMAIL_TO a@qq.com,b@qq.com
     raw = os.environ.get("EMAIL_TO", "2089178729@qq.com")
     recipients = [x.strip() for x in raw.split(",") if x.strip()]
     if not recipients:
         recipients = ["2089178729@qq.com"]
 
     msg = MIMEText(html, "html", "utf-8")
-    # 发件人显示名称随模式变化：早上=公考每日推送，晚上=明日课程预告
+    # ==
     msg["From"] = formataddr((sender_name, user), "utf-8")
     msg["To"] = Header(", ".join(recipients))
     msg["Subject"] = Header(subject, "utf-8")
@@ -691,11 +689,11 @@ def send_email(html: str, subject: str, sender_name: str = "公考每日推送")
     print("已发送给", len(recipients), "位收件人：", ", ".join(recipients))
 
 
-# ------------------------- 入口 -------------------------
+# -------------------------  -------------------------
 def main():
     mode = (os.environ.get("PUSH_MODE") or "").strip().lower()
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=TZ_HOURS)))
-    # 未显式指定时，按北京时间自动判断：12 点前=早上，之后=晚上
+    # 12 ==
     if not mode:
         mode = "morning" if now.hour < 12 else "evening"
 
@@ -710,7 +708,6 @@ def main():
     send_date = now.strftime("%Y年%m月%d日")            # 去重用的实际发送日
     history = load_history()
 
-    # 防重复：同一天同一模式已发过则跳过（早晚独立去重，互不抑制）
     if any(r.get("date") == send_date and r.get("mode") == mode
            for r in history.get("records", [])):
         print(f"【{mode}】{send_date} 已发送过，跳过以避免重复邮件。")
@@ -728,7 +725,7 @@ def main():
         except Exception as e:
             print("内容生成失败，使用默认占位：", e)
             content = default_content(board, day_hint)
-        # 常识考点改为从高频题库确定性取用（更稳定、不依赖 LLM 是否可用）
+        #  LLM
         content["knowledge"] = pick_knowledge(board, day_hint, 1)[0]
         content["wuhao"] = pick_wuhao(target.date())
         content["idioms"] = pick_idioms(day_hint, 3)
@@ -745,7 +742,6 @@ def main():
     send_email(html, subject, sender_name)
     print("已发送：", subject)
 
-    # 写入历史（跨天持久化去重）
     history.setdefault("records", [])
     rec = {"date": send_date, "mode": mode}
     if mode == "morning":
