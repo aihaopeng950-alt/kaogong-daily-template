@@ -1,12 +1,12 @@
 name: 考公每日加油站
 
 on:
-  # 触发方式一（默认·推荐，无需任何云账号）：GitHub 自带定时
-  # 北京时间约 07:00 / 22:00（GitHub 使用 UTC，比北京早 8 小时；免费仓库可能延迟几分钟，通常在 7:00~7:30 之间）
+  # ·GitHub
+  #  07:00 / 22:00GitHub  UTC 8  7:00~7:30
   schedule:
     - cron: '0 23 * * *'    # 北京时间约 07:00 → 早间版(morning)
     - cron: '0 14 * * *'    # 北京时间约 22:00 → 晚间版(evening)
-  # 触发方式二（备选·精准）：腾讯云 SCF 定时精准调用并传入 mode（见《部署使用说明书》第 3.5 节）
+  # · SCF  mode 3.5
   workflow_dispatch:
     inputs:
       mode:
@@ -14,7 +14,6 @@ on:
         required: false
         default: ''
 
-# 允许脚本把「已发送历史」写回仓库，用于跨天去重（避免内容重复推送）
 permissions:
   contents: write
 
