@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-腾讯云 SCF 定时触发器函数
-作用：在精准的北京时间调用 GitHub API 触发 workflow_dispatch，
-      由 GitHub Actions 完成天气查询 / 内容生成 / 163 邮件发送。
-为什么需要它：GitHub 自带的 cron 在低频私有仓库上可能延迟数分钟甚至偶发跳过；
-      用腾讯云定时触发器可保证准时「叫醒」Actions，规避延迟。
-依赖：仅 Python 标准库（urllib），SCF 运行时无需 pip install。
+ SCF 
+ GitHub API  workflow_dispatch
+       GitHub Actions  /  / 163 
+GitHub  cron 
+      Actions
+ Python urllibSCF  pip install
 
-部署：本文件作为 SCF 函数代码，部署两个函数：
-  - kaogong-morning：环境变量 MODE=morning，定时触发器 cron = 0 0 7 * * * *（北京时间 07:00）
-  - kaogong-evening：环境变量 MODE=evening，定时触发器 cron = 0 0 22 * * * *（北京时间 22:00）
-函数共同环境变量：GH_PAT（GitHub token，需 repo+workflow 权限）、GH_REPO、GH_WORKFLOW、GH_REF
+ SCF 
+  - kaogong-morning MODE=morning cron = 0 0 7 * * * * 07:00
+  - kaogong-evening MODE=evening cron = 0 0 22 * * * * 22:00
+GH_PATGitHub token repo+workflow GH_REPOGH_WORKFLOWGH_REF
 """
 
 import os
