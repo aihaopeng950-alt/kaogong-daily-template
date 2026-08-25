@@ -1,0 +1,44 @@
+name: 考公每日加油站
+
+on:
+  # 唯一触发源：腾讯云 SCF 定时触发器，精准调用 workflow_dispatch 并传入 mode（07:00=morning / 22:00=evening）
+  # GitHub 自带 cron 已关闭，避免与 SCF 重复触发
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '推送模式：morning=早上备考知识点版(今日) / evening=晚上预告版(明日)'
+        required: false
+        default: ''
+
+# 允许脚本把「已发送历史」写回仓库，用于跨天去重（避免内容重复推送）
+permissions:
+  contents: write
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run and send
+        env:
+          PUSH_MODE: ${{ github.event.inputs.mode }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_AUTH_CODE: ${{ secrets.EMAIL_AUTH_CODE }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python main.py
